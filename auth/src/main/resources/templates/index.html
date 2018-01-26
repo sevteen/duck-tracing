@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Standings</title>
+    <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <script type="text/javascript" src="//maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/js/bootstrap.min.js"></script>
+    <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/css/bootstrap.min.css"/>
+    <style type="text/css">
+        .url {
+            font-style: italic;
+            font-weight: 900;
+            color: dodgerblue;
+        }
+
+        .token {
+            font-style: italic;
+            font-weight: 900;
+            color: darkred;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div th:if="${token != null}">
+        <h1>Success!</h1>
+        <p th:if="${redirectUrl != null}">Visit following URL: <span class="url" th:text="${redirectUrl}"></span></p>
+        <p th:if="${authHeaderName != null}">
+            Don't forget to add following header:
+            <div class="token">
+                <span th:text="${authHeaderName}"></span>: <span th:text="${token.value}"></span>
+            </div>
+        </p>
+
+        <p>Click <a th:href="|@{/tokens}/${token.value}|" class="token">here</a> to see details about the token</p>
+    </div>
+    <form method="post">
+        <input type="text" name="owner" placeholder="Enter your name"/>
+        <input type="hidden" name="redirectUrl" th:if="${redirectUrl != null}" th:value="${redirectUrl}"/>
+        <input type="hidden" name="authHeaderName" th:if="${authHeaderName != null}" th:value="${authHeaderName}"/>
+        <input type="submit" value="Generate token"/>
+    </form>
+</div>
+</body>
+</html>
