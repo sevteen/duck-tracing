@@ -1,0 +1,34 @@
+hash: 8793ed74c3cf4430081259a01d3a84af99d18e7ebbd5c975ca6e00ab55af3031
+updated: 2018-01-26T10:47:22.964426+01:00
+imports:
+- name: github.com/apache/thrift
+  version: b2a4d4ae21c789b689dd162deb819665567f481c
+  subpackages:
+  - lib/go/thrift
+- name: github.com/codahale/hdrhistogram
+  version: 3a0bb77429bd3a61596f5e8a3172445844342120
+- name: github.com/opentracing/opentracing-go
+  version: 1949ddbfd147afd4d964a9f00b24eb291e0e7c38
+  subpackages:
+  - ext
+  - log
+- name: github.com/uber/jaeger-client-go
+  version: 3ac96c6e679cb60a74589b0d0aa7c70a906183f7
+  subpackages:
+  - internal/baggage
+  - internal/spanlog
+  - log
+  - thrift-gen/agent
+  - thrift-gen/jaeger
+  - thrift-gen/sampling
+  - thrift-gen/zipkincore
+  - utils
+- name: github.com/uber/jaeger-lib
+  version: 7f95f4f7e80028096410abddaae2556e4c61b59f
+  subpackages:
+  - metrics
+- name: golang.org/x/net
+  version: 0ed95abb35c445290478a5348a7b38bb154135fd
+  subpackages:
+  - context
+testImports: []
