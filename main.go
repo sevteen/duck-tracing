@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"fmt"
 	"net/http"
 	"github.com/uber/jaeger-lib/metrics"
 
@@ -11,7 +10,46 @@ import (
 	jaegerlog "github.com/uber/jaeger-client-go/log"
 	"github.com/opentracing/opentracing-go"
 	"io"
+	"fmt"
+	"encoding/json"
 )
+
+type Duck struct {
+	Name string
+}
+
+type DuckRepository interface {
+	GetAll() ([]Duck, error)
+
+	GetByName(name string) (Duck, error)
+
+	Add(duck Duck) error
+}
+
+type InMemoryDuckRepository struct {
+	Ducks map[string]Duck
+}
+
+func (r InMemoryDuckRepository) GetAll() ([]Duck, error) {
+	ducks := make([]Duck, len(r.Ducks))
+	i := 0
+	for _, d := range r.Ducks {
+		ducks[i] = d
+		i++
+	}
+	return ducks, nil
+}
+
+func (r InMemoryDuckRepository) GetByName(name string) (Duck, error) {
+	return r.Ducks[name], nil
+}
+
+func (r InMemoryDuckRepository) Add(d Duck) error {
+	r.Ducks[d.Name] = d
+	return nil
+}
+
+var duckRepository DuckRepository = InMemoryDuckRepository{make(map[string]Duck)}
 
 func main() {
 	closer, err := configureTracer()
@@ -21,7 +59,11 @@ func main() {
 	}
 	defer closer.Close()
 
-	http.HandleFunc("/hello", helloHandler)
+	setupServer()
+}
+
+func setupServer() {
+	http.HandleFunc("/ducks", handleDucks)
 	http.ListenAndServe(":8080", nil)
 }
 
@@ -50,13 +92,63 @@ func configureTracer() (io.Closer, error) {
 	)
 }
 
-func helloHandler(w http.ResponseWriter, r *http.Request) {
-	sp := opentracing.StartSpan("hello")
-	defer sp.Finish()
-	fmt.Fprintf(w, buildHelloMessage(r, sp))
+func handleDucks(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		var ducks []Duck
+		var err error
+		var sp opentracing.Span
+
+		name := r.URL.Query().Get("name")
+		if len(name) > 0 {
+			sp = opentracing.StartSpan("getDuckByName").SetTag("name", name)
+			defer sp.Finish()
+			ducks = make([]Duck, 1)
+			ducks[0], err = duckRepository.GetByName(name)
+		} else {
+			sp = opentracing.StartSpan("getDucks")
+			defer sp.Finish()
+			ducks, err = duckRepository.GetAll()
+		}
+		if err != nil {
+			writeError(w, err)
+		}
+		writeJson(w, ducks, sp)
+	case "POST":
+		sp := opentracing.StartSpan("addDuck")
+		defer sp.Finish()
+		duckRepository.Add(parseDuck(r.Body, sp))
+	}
 }
-func buildHelloMessage(r *http.Request, parentSpan opentracing.Span) string {
-	defer opentracing.StartSpan("buildHelloMsg",
-		opentracing.ChildOf(parentSpan.Context())).Finish()
-	return fmt.Sprintf("Hello from %s", r.Host)
+
+func writeError(w http.ResponseWriter, err error) {
+	writeJson(w, err.Error(), nil)
+}
+
+func writeJson(w http.ResponseWriter, o interface{}, parentSpan opentracing.Span) {
+	if parentSpan != nil {
+		serializationSpan := opentracing.StartSpan(
+			"jsonSerialization", opentracing.ChildOf(parentSpan.Context()))
+		defer serializationSpan.Finish()
+	}
+	m, _ := json.Marshal(o)
+	w.Header().Set("Content-Type", "application/json; utf-8")
+	fmt.Fprint(w, string(m))
+}
+
+func parseDuck(rawDuck io.ReadCloser, parentSpan opentracing.Span) Duck {
+	if parentSpan != nil {
+		deserializationSpan := opentracing.StartSpan(
+			"jsonDeserialization", opentracing.ChildOf(parentSpan.Context()))
+		defer deserializationSpan.Finish()
+	}
+	var d Duck
+	deserializeDuck(rawDuck, &d)
+	return d
+}
+
+func deserializeDuck(r io.ReadCloser, d interface{}) {
+	decoder := json.NewDecoder(r)
+	decoder.Decode(&d)
+	defer r.Close()
 }
