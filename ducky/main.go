@@ -15,6 +15,10 @@ import (
 	"encoding/json"
 )
 
+const outHostPort string  = "";
+
+const urlToRedirect string  = "";
+
 type Duck struct {
 	Name string
 }
@@ -31,6 +35,13 @@ type InMemoryDuckRepository struct {
 	Ducks map[string]Duck
 }
 
+type Token struct {
+	Owner string
+	Value string
+	CreatedAt string
+	Valid bool
+	basicAuthHeaderValue string
+}
 func (r InMemoryDuckRepository) GetAll() ([]Duck, error) {
 	ducks := make([]Duck, len(r.Ducks))
 	i := 0
@@ -100,9 +111,16 @@ func configureTracer() (io.Closer, error) {
 
 func handleDucks(w http.ResponseWriter, r *http.Request) {
 	if !hasTokenHeader(r) {
-		http.Redirect(w, r, "", 302)
+		http.Redirect(w, r, urlToRedirect, 302)
 	} else {
-
+		resp, err := http.Get("http://" + outHostPort + "/tokens/" + r.Header.Get("X-Auth-Token"))
+		var t Token
+		if err != nil {
+			deserialize(resp.Body, &t)
+			if !t.Valid {http.RedirectHandler(outHostPort, 403)}
+		} else  {
+			log.Fatal(err.Error())
+		}
 	}
 
 	switch r.Method {
@@ -165,11 +183,11 @@ func parseDuck(rawDuck io.ReadCloser, parentSpan opentracing.Span) Duck {
 		defer deserializationSpan.Finish()
 	}
 	var d Duck
-	deserializeDuck(rawDuck, &d)
+	deserialize(rawDuck, &d)
 	return d
 }
 
-func deserializeDuck(r io.ReadCloser, d interface{}) {
+func deserialize(r io.ReadCloser, d interface{}) {
 	decoder := json.NewDecoder(r)
 	decoder.Decode(&d)
 	defer r.Close()
