@@ -180,5 +180,5 @@ func getEnv(key string, defaultValue string) string {
 	if len(value) == 0 {
 		value = defaultValue
 	}
-	return defaultValue
+	return value
 }
