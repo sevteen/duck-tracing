@@ -15,9 +15,9 @@ import (
 	"encoding/json"
 )
 
-const outHostPort string  = "";
+const authHeaderToken = "X-Auth-Token"
 
-const urlToRedirect string  = "";
+var authHostPort = getEnv("AUTH_HOST_PORT", "localhost:9090")
 
 type Duck struct {
 	Name string
@@ -36,12 +36,13 @@ type InMemoryDuckRepository struct {
 }
 
 type Token struct {
-	Owner string
-	Value string
-	CreatedAt string
-	Valid bool
-	basicAuthHeaderValue string
+	Owner                string
+	Value                string
+	CreatedAt            string
+	Valid                bool
+	BasicAuthHeaderValue string
 }
+
 func (r InMemoryDuckRepository) GetAll() ([]Duck, error) {
 	ducks := make([]Duck, len(r.Ducks))
 	i := 0
@@ -95,13 +96,9 @@ func configureTracer() (io.Closer, error) {
 		},
 	}
 
-	// Example logger and metrics factory. Use github.com/uber/jaeger-client-go/log
-	// and github.com/uber/jaeger-lib/metrics respectively to bind to real logging and metrics
-	// frameworks.
 	jLogger := jaegerlog.StdLogger
 	jMetricsFactory := metrics.NullFactory
 
-	// Initialize tracer with configureTracer logger and configureTracer metrics factory
 	return cfg.InitGlobalTracer(
 		getEnv("SERVICE_NAME", "Ducky"),
 		jaegercfg.Logger(jLogger),
@@ -110,59 +107,98 @@ func configureTracer() (io.Closer, error) {
 }
 
 func handleDucks(w http.ResponseWriter, r *http.Request) {
-	if !hasTokenHeader(r) {
-		http.Redirect(w, r, urlToRedirect, 302)
-	} else {
-		resp, err := http.Get("http://" + outHostPort + "/tokens/" + r.Header.Get("X-Auth-Token"))
-		var t Token
-		if err != nil {
-			deserialize(resp.Body, &t)
-			if !t.Valid {http.RedirectHandler(outHostPort, 403)}
-		} else  {
-			log.Fatal(err.Error())
-		}
+	sp := opentracing.StartSpan("ducks")
+	defer sp.Finish()
+	if !isValidRequest(r, w, sp) {
+		return
 	}
 
 	switch r.Method {
 	case "GET":
-		var ducks []Duck
-		var err error
-		var sp opentracing.Span
-
-		name := r.URL.Query().Get("name")
-		if len(name) > 0 {
-			sp = opentracing.StartSpan("getDuckByName").SetTag("name", name)
-			defer sp.Finish()
-			var duck *Duck
-			duck, _ = duckRepository.GetByName(name)
-			if duck != nil {
-				ducks = make([]Duck, 1)
-				ducks[0] = *duck
-			}
-		} else {
-			sp = opentracing.StartSpan("getDucks")
-			defer sp.Finish()
-			ducks, err = duckRepository.GetAll()
-		}
-		if err != nil {
-			writeError(w, err)
-		}
-		if ducks == nil {
-			ducks = make([]Duck, 0)
-		}
-		writeJson(w, ducks, sp)
+		handleGet(r, w, sp)
 	case "POST":
-		sp := opentracing.StartSpan("addDuck")
-		defer sp.Finish()
-		duckRepository.Add(parseDuck(r.Body, sp))
+		handlePost(r, sp)
 	}
 }
-func hasTokenHeader(r *http.Request) bool {
-	return len(r.Header.Get("X-Auth-Token")) > 0
+
+func isValidRequest(r *http.Request, w http.ResponseWriter, parentSpan opentracing.Span) bool {
+	validateSpan := opentracing.StartSpan(
+		"validate", opentracing.ChildOf(parentSpan.Context()))
+	defer validateSpan.Finish()
+	validRequest := true
+	if !hasTokenHeader(r) {
+		w.WriteHeader(401)
+		writeString(w, "http://"+authHostPort+"/tokens?authHeaderName="+authHeaderToken)
+		validRequest = false
+	} else {
+		token := r.Header.Get(authHeaderToken)
+		fetchTokenSpan := opentracing.StartSpan(
+			"fetchToken", opentracing.ChildOf(validateSpan.Context()))
+		resp, err := fetchToken(token, fetchTokenSpan)
+		defer fetchTokenSpan.Finish()
+
+		if err != nil {
+			log.Fatalf("Failed to fetch token %s", err.Error())
+			validRequest = false
+		} else {
+			var t Token
+			deserialize(resp.Body, &t)
+			if !t.Valid {
+				log.Printf("Token %s is not valid", token)
+				w.WriteHeader(403)
+				validRequest = false
+			}
+		}
+	}
+	return validRequest
 }
 
-func writeError(w http.ResponseWriter, err error) {
-	writeJson(w, err.Error(), nil)
+func fetchToken(token string, fetchTokenSpan opentracing.Span) (*http.Response, error) {
+	request, _ := http.NewRequest("GET", "http://"+authHostPort+"/tokens/"+token, nil)
+
+	carrier := opentracing.HTTPHeadersCarrier(request.Header)
+	opentracing.GlobalTracer().Inject(
+		fetchTokenSpan.Context(),
+		opentracing.HTTPHeaders,
+		carrier)
+
+	return (&http.Client{}).Do(request)
+}
+
+func handleGet(r *http.Request, w http.ResponseWriter, parentSpan opentracing.Span) {
+	sp := opentracing.StartSpan(
+		"getDucks", opentracing.ChildOf(parentSpan.Context()))
+	defer sp.Finish()
+	ducks := getDucks(r)
+	writeJson(w, ducks, sp)
+}
+
+func getDucks(r *http.Request) []Duck {
+	var ducks []Duck
+	name := r.URL.Query().Get("name")
+	if len(name) > 0 {
+		duck, _ := duckRepository.GetByName(name)
+		if duck != nil {
+			ducks = make([]Duck, 1)
+			ducks[0] = *duck
+		} else {
+			ducks = make([]Duck, 0)
+		}
+	} else {
+		ducks, _ = duckRepository.GetAll()
+	}
+	return ducks
+}
+
+func handlePost(r *http.Request, parentSpan opentracing.Span) {
+	sp := opentracing.StartSpan(
+		"addDuck", opentracing.ChildOf(parentSpan.Context()))
+	defer sp.Finish()
+	duckRepository.Add(parseDuck(r.Body, sp))
+}
+
+func hasTokenHeader(r *http.Request) bool {
+	return len(r.Header.Get(authHeaderToken)) > 0
 }
 
 func writeJson(w http.ResponseWriter, o interface{}, parentSpan opentracing.Span) {
@@ -174,6 +210,10 @@ func writeJson(w http.ResponseWriter, o interface{}, parentSpan opentracing.Span
 	m, _ := json.Marshal(o)
 	w.Header().Set("Content-Type", "application/json; utf-8")
 	fmt.Fprint(w, string(m))
+}
+
+func writeString(w http.ResponseWriter, msg string) {
+	w.Write([]byte(msg))
 }
 
 func parseDuck(rawDuck io.ReadCloser, parentSpan opentracing.Span) Duck {
