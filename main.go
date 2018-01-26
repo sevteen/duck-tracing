@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"log"
 	"net/http"
 	"github.com/uber/jaeger-lib/metrics"
@@ -78,7 +79,8 @@ func configureTracer() (io.Closer, error) {
 			Param: 1,
 		},
 		Reporter: &jaegercfg.ReporterConfig{
-			LogSpans: true,
+			LogSpans:           true,
+			LocalAgentHostPort: getEnv("JAEGER_AGENT_HOST_PORT", "localhost:6831"),
 		},
 	}
 
@@ -90,7 +92,7 @@ func configureTracer() (io.Closer, error) {
 
 	// Initialize tracer with configureTracer logger and configureTracer metrics factory
 	return cfg.InitGlobalTracer(
-		"Ducky",
+		getEnv("SERVICE_NAME", "Ducky"),
 		jaegercfg.Logger(jLogger),
 		jaegercfg.Metrics(jMetricsFactory),
 	)
@@ -162,4 +164,12 @@ func deserializeDuck(r io.ReadCloser, d interface{}) {
 	decoder := json.NewDecoder(r)
 	decoder.Decode(&d)
 	defer r.Close()
+}
+
+func getEnv(key string, defaultValue string) string {
+	value := os.Getenv(key)
+	if len(value) == 0 {
+		value = defaultValue
+	}
+	return defaultValue
 }
