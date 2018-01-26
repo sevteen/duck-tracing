@@ -99,6 +99,12 @@ func configureTracer() (io.Closer, error) {
 }
 
 func handleDucks(w http.ResponseWriter, r *http.Request) {
+	if !hasTokenHeader(r) {
+		http.Redirect(w, r, "", 302)
+	} else {
+
+	}
+
 	switch r.Method {
 	case "GET":
 		var ducks []Duck
@@ -132,6 +138,9 @@ func handleDucks(w http.ResponseWriter, r *http.Request) {
 		defer sp.Finish()
 		duckRepository.Add(parseDuck(r.Body, sp))
 	}
+}
+func hasTokenHeader(r *http.Request) bool {
+	return len(r.Header.Get("X-Auth-Token")) > 0
 }
 
 func writeError(w http.ResponseWriter, err error) {
