@@ -1,4 +1,4 @@
-package: .
+package: github.com/sevteen/duck-tracing
 import:
 - package: github.com/uber/jaeger-client-go
   version: ^2.11.2

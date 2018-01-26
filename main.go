@@ -21,7 +21,7 @@ type Duck struct {
 type DuckRepository interface {
 	GetAll() ([]Duck, error)
 
-	GetByName(name string) (Duck, error)
+	GetByName(name string) (*Duck, error)
 
 	Add(duck Duck) error
 }
@@ -40,8 +40,12 @@ func (r InMemoryDuckRepository) GetAll() ([]Duck, error) {
 	return ducks, nil
 }
 
-func (r InMemoryDuckRepository) GetByName(name string) (Duck, error) {
-	return r.Ducks[name], nil
+func (r InMemoryDuckRepository) GetByName(name string) (*Duck, error) {
+	duck, ok := r.Ducks[name]
+	if ok {
+		return &duck, nil
+	}
+	return nil, nil
 }
 
 func (r InMemoryDuckRepository) Add(d Duck) error {
@@ -103,8 +107,12 @@ func handleDucks(w http.ResponseWriter, r *http.Request) {
 		if len(name) > 0 {
 			sp = opentracing.StartSpan("getDuckByName").SetTag("name", name)
 			defer sp.Finish()
-			ducks = make([]Duck, 1)
-			ducks[0], err = duckRepository.GetByName(name)
+			var duck *Duck
+			duck, _ = duckRepository.GetByName(name)
+			if duck != nil {
+				ducks = make([]Duck, 1)
+				ducks[0] = *duck
+			}
 		} else {
 			sp = opentracing.StartSpan("getDucks")
 			defer sp.Finish()
@@ -112,6 +120,9 @@ func handleDucks(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			writeError(w, err)
+		}
+		if ducks == nil {
+			ducks = make([]Duck, 0)
 		}
 		writeJson(w, ducks, sp)
 	case "POST":
