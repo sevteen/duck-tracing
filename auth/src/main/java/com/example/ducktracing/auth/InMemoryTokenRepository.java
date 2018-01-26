@@ -15,6 +15,10 @@ public class InMemoryTokenRepository implements TokenRepository {
 
     @Override
     public Token findByValue(String value) {
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException ignored) {
+        }
         return tokens.get(value);
     }
 
