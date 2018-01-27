@@ -16,7 +16,7 @@ public class JaegerConfig {
     @Value("${jaeger.service-name}")
     private String serviceName;
 
-    @Value("${jaeger.host-port\\:localhost:6831}")
+    @Value("${jaeger.host-port}")
     private String hostPort;
 
     @Bean(destroyMethod = "close")
