@@ -13,6 +13,7 @@ import (
 	"io"
 	"fmt"
 	"encoding/json"
+	"time"
 )
 
 const authHeaderToken = "X-Auth-Token"
@@ -115,15 +116,16 @@ func handleDucks(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case "GET":
-		handleGet(r, w, sp)
+		handleDuckGet(r, w, sp)
 	case "POST":
-		handlePost(r, sp)
+		handleDuckPost(r, sp)
 	}
 }
 
 func isValidRequest(r *http.Request, w http.ResponseWriter, parentSpan opentracing.Span) bool {
 	validateSpan := opentracing.StartSpan(
-		"validate", opentracing.ChildOf(parentSpan.Context()))
+		"validateRequest", opentracing.ChildOf(parentSpan.Context())).
+		SetTag("URL", r.URL).SetTag("METHOD", r.Method)
 	defer validateSpan.Finish()
 	validRequest := true
 	if !hasTokenHeader(r) {
@@ -133,7 +135,8 @@ func isValidRequest(r *http.Request, w http.ResponseWriter, parentSpan opentraci
 	} else {
 		token := r.Header.Get(authHeaderToken)
 		fetchTokenSpan := opentracing.StartSpan(
-			"fetchToken", opentracing.ChildOf(validateSpan.Context()))
+			"fetchToken", opentracing.ChildOf(validateSpan.Context())).
+			SetTag("authServerAddress", authHostPort)
 		resp, err := fetchToken(token, fetchTokenSpan)
 		defer fetchTokenSpan.Finish()
 
@@ -143,7 +146,7 @@ func isValidRequest(r *http.Request, w http.ResponseWriter, parentSpan opentraci
 		} else {
 			var t Token
 			deserialize(resp.Body, &t)
-			if !t.Valid {
+			if !isTokenValid(t, fetchTokenSpan) {
 				log.Printf("Token %s is not valid", token)
 				w.WriteHeader(403)
 				validRequest = false
@@ -151,6 +154,16 @@ func isValidRequest(r *http.Request, w http.ResponseWriter, parentSpan opentraci
 		}
 	}
 	return validRequest
+}
+
+func isTokenValid(t Token, parentSpan opentracing.Span) bool {
+	sp := opentracing.StartSpan(
+		"validateToken", opentracing.ChildOf(parentSpan.Context())).
+			SetTag("token", t.Value).SetTag("owner", t.Owner)
+
+	defer sp.Finish()
+	time.Sleep(1500 * time.Millisecond)
+	return t.Valid
 }
 
 func fetchToken(token string, fetchTokenSpan opentracing.Span) (*http.Response, error) {
@@ -165,9 +178,13 @@ func fetchToken(token string, fetchTokenSpan opentracing.Span) (*http.Response, 
 	return (&http.Client{}).Do(request)
 }
 
-func handleGet(r *http.Request, w http.ResponseWriter, parentSpan opentracing.Span) {
+func handleDuckGet(r *http.Request, w http.ResponseWriter, parentSpan opentracing.Span) {
 	sp := opentracing.StartSpan(
 		"getDucks", opentracing.ChildOf(parentSpan.Context()))
+	name := r.URL.Query().Get("name")
+	if len(name) > 0 {
+		sp.SetTag("name", name)
+	}
 	defer sp.Finish()
 	ducks := getDucks(r)
 	writeJson(w, ducks, sp)
@@ -190,7 +207,7 @@ func getDucks(r *http.Request) []Duck {
 	return ducks
 }
 
-func handlePost(r *http.Request, parentSpan opentracing.Span) {
+func handleDuckPost(r *http.Request, parentSpan opentracing.Span) {
 	sp := opentracing.StartSpan(
 		"addDuck", opentracing.ChildOf(parentSpan.Context()))
 	defer sp.Finish()
@@ -207,6 +224,7 @@ func writeJson(w http.ResponseWriter, o interface{}, parentSpan opentracing.Span
 			"jsonSerialization", opentracing.ChildOf(parentSpan.Context()))
 		defer serializationSpan.Finish()
 	}
+	time.Sleep(200 * time.Millisecond)
 	m, _ := json.Marshal(o)
 	w.Header().Set("Content-Type", "application/json; utf-8")
 	fmt.Fprint(w, string(m))
