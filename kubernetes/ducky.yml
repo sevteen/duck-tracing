@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ducky
+  labels:
+    app: ducky
+spec:
+  ports:
+    - port: 8080
+  selector:
+    app: ducky
+  type: NodePort
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: ducky
+  labels:
+    app: ducky
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: ducky
+    spec:
+        containers:
+        - env:
+            - name: JAEGER_AGENT_HOST_PORT
+              value: 192.168.99.100:30672
+            - name: AUTH_HOST_PORT
+              value: 192.168.99.100:30683
+          image: sevteen/ducktracing-ducky
+          name: ducky
+          ports:
+            - containerPort: 8080

@@ -101,7 +101,6 @@ items:
       port: 6832
       protocol: UDP
       targetPort: 6832
-    # clusterIP: None
     type: NodePort
     selector:
       jaeger-infra: jaeger-pod
