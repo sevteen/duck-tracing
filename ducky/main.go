@@ -14,60 +14,15 @@ import (
 	"fmt"
 	"encoding/json"
 	"time"
+
+	"github.com/sevteen/duck-tracing/ducky/model"
 )
 
 const authHeaderToken = "X-Auth-Token"
 
 var authHostPort = getEnv("AUTH_HOST_PORT", "localhost:9090")
 
-type Duck struct {
-	Name string
-}
-
-type DuckRepository interface {
-	GetAll() ([]Duck, error)
-
-	GetByName(name string) (*Duck, error)
-
-	Add(duck Duck) error
-}
-
-type InMemoryDuckRepository struct {
-	Ducks map[string]Duck
-}
-
-type Token struct {
-	Owner                string
-	Value                string
-	CreatedAt            string
-	Valid                bool
-	BasicAuthHeaderValue string
-}
-
-func (r InMemoryDuckRepository) GetAll() ([]Duck, error) {
-	ducks := make([]Duck, len(r.Ducks))
-	i := 0
-	for _, d := range r.Ducks {
-		ducks[i] = d
-		i++
-	}
-	return ducks, nil
-}
-
-func (r InMemoryDuckRepository) GetByName(name string) (*Duck, error) {
-	duck, ok := r.Ducks[name]
-	if ok {
-		return &duck, nil
-	}
-	return nil, nil
-}
-
-func (r InMemoryDuckRepository) Add(d Duck) error {
-	r.Ducks[d.Name] = d
-	return nil
-}
-
-var duckRepository DuckRepository = InMemoryDuckRepository{make(map[string]Duck)}
+var duckRepository model.DuckRepository = model.InMemoryDuckRepository{make(map[string]model.Duck)}
 
 func main() {
 	closer, err := configureTracer()
@@ -144,7 +99,7 @@ func isValidRequest(r *http.Request, w http.ResponseWriter, parentSpan opentraci
 			log.Fatalf("Failed to fetch token %s", err.Error())
 			validRequest = false
 		} else {
-			var t Token
+			var t model.Token
 			deserialize(resp.Body, &t)
 			if !isTokenValid(t, fetchTokenSpan) {
 				log.Printf("Token %s is not valid", token)
@@ -156,7 +111,7 @@ func isValidRequest(r *http.Request, w http.ResponseWriter, parentSpan opentraci
 	return validRequest
 }
 
-func isTokenValid(t Token, parentSpan opentracing.Span) bool {
+func isTokenValid(t model.Token, parentSpan opentracing.Span) bool {
 	sp := opentracing.StartSpan(
 		"validateToken", opentracing.ChildOf(parentSpan.Context())).
 			SetTag("token", t.Value).SetTag("owner", t.Owner)
@@ -190,16 +145,16 @@ func handleDuckGet(r *http.Request, w http.ResponseWriter, parentSpan opentracin
 	writeJson(w, ducks, sp)
 }
 
-func getDucks(r *http.Request) []Duck {
-	var ducks []Duck
+func getDucks(r *http.Request) []model.Duck {
+	var ducks []model.Duck
 	name := r.URL.Query().Get("name")
 	if len(name) > 0 {
 		duck, _ := duckRepository.GetByName(name)
 		if duck != nil {
-			ducks = make([]Duck, 1)
+			ducks = make([]model.Duck, 1)
 			ducks[0] = *duck
 		} else {
-			ducks = make([]Duck, 0)
+			ducks = make([]model.Duck, 0)
 		}
 	} else {
 		ducks, _ = duckRepository.GetAll()
@@ -234,13 +189,13 @@ func writeString(w http.ResponseWriter, msg string) {
 	w.Write([]byte(msg))
 }
 
-func parseDuck(rawDuck io.ReadCloser, parentSpan opentracing.Span) Duck {
+func parseDuck(rawDuck io.ReadCloser, parentSpan opentracing.Span) model.Duck {
 	if parentSpan != nil {
 		deserializationSpan := opentracing.StartSpan(
 			"jsonDeserialization", opentracing.ChildOf(parentSpan.Context()))
 		defer deserializationSpan.Finish()
 	}
-	var d Duck
+	var d model.Duck
 	deserialize(rawDuck, &d)
 	return d
 }
